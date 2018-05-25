@@ -1,0 +1,23 @@
+This library has commands created for forward error correction for OreSat.
+
+
+Functions:
+	hamming (7,4) encoding and decoding (it's FEC and it works)
+		- in the final rounds of validation and verification
+		- create educational write-up
+
+	modern-grade FEC encoding and decoding (it's better FEC and it works better)
+		- decide on which code to use (probably SCCC or turbo)
+
+	emergency mode encoding and decoding (for very high bit error rate)
+		- calculate how much n/k to be sent in a 2 minute window
+
+	UDP packet header adder
+		- To do. Should be simple.
+
+	Various functions for testing FEC protocols.
+		- Made: function for altering bits ever n bytes
+		- To do: randomized bit error function
+
+
+(README will be made better in due time.)

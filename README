@@ -8,9 +8,12 @@ Functions:
 
 	modern-grade FEC encoding and decoding (it's better FEC and it works better)
 		- decide on which code to use (probably SCCC or turbo)
+		- Reed-Solomon will directly address UDP packet loss; best plan is to
+			concatenate a RS code with convolution/turbo
 
 	emergency mode encoding and decoding (for very high bit error rate)
 		- calculate how much n/k to be sent in a 2 minute window
+		- two emergency modes: with and without assuming UDP packets
 
 	UDP packet header adder
 		- To do. Should be simple.

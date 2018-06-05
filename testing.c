@@ -9,7 +9,7 @@ int main(int argc, char *argv[])
 	fclose(out);
 	in = fopen(argv[2],"rb");
         out = fopen(argv[3],"wb");
-	sstrat(9,in,out);
+	scram(10,in,out);
 	fclose(in);
 	fclose(out);
 	in = fopen(argv[3],"rb");

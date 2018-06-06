@@ -2,7 +2,8 @@
 #include <stdlib.h>
 #include <time.h>
 
-#define DEBUG 0
+
+/* There is a distinct lack of error checking which should probably be fixed. */
 
 
 /* UDP HEADER ADDER */
@@ -49,14 +50,14 @@ int addUDP(unsigned int length, FILE *out)
 	unsigned char lengthLo = (unsigned char) length;
 	unsigned char lengthHi = (unsigned char) (length >> 8);
 	// Source port
-	fputc(0x00, out);
-	fputc(0x00, out);
+	fputc(0xff, out);// value is arbitrary;
+	fputc(0xff, out);
 	// Destination port (broadcast)
 	fputc(0xff, out);
 	fputc(0xff, out);
 	// Length
+	fputc(lengthLo, out); //endian BS caused a bug here
 	fputc(lengthHi, out);
-	fputc(lengthLo, out);
 	// Checksum (none)
 	fputc(0x00, out);
 	fputc(0x00, out);
@@ -98,10 +99,9 @@ int inlvUDP(unsigned int length, FILE *in, FILE *out)
 					c = (unsigned char) next;;
 				}
 			}
-			fputc(c, out);
+			fputc(c,out);
 		}
 	}
-
 	return pcount;
 }
 
@@ -117,9 +117,12 @@ int inlvUDP(unsigned int length, FILE *in, FILE *out)
 int decUDP(int pnum, unsigned int plen, FILE *in, FILE *out)
 {
 	unsigned char c;
-	unsigned int s = 0;
 	int pcounter = 0;
 	int droppack;
+
+	// because testing length by each byte
+	unsigned char lengthLo = (unsigned char) plen;
+	unsigned char lengthHi = (unsigned char) (plen >> 8);
 
 	while (pcounter < pnum)
 	{
@@ -127,19 +130,21 @@ int decUDP(int pnum, unsigned int plen, FILE *in, FILE *out)
 		// First, check packet header to see if dropped
 		c = fgetc(in); // first is source port
 		c = fgetc(in); // (each fgetc returns 8 bits)
+
 		c = fgetc(in); // dest port
 		if (c != 0xff)
 			droppack = 1;
 		c = fgetc(in); // dest port again
 		if (c != 0xff)
 			droppack = 1;
-		s = fgetc(in); // length will be taken and bit shifted
-		s = s << 8;
-		c = 0; // not actually sure if clearing register is needed
-		c = fgetc(in);
-		s ^= c; // s + c, total length
-		if (s != plen)
+
+		c = fgetc(in); // length (tested by each byte)
+		if (c != lengthLo)
 			droppack = 1;
+		c = fgetc(in);
+		if (c != lengthHi)
+			droppack = 1;
+
 		c = fgetc(in); // checksum
 		if (c != 0x00)
 			droppack = 1;
@@ -166,7 +171,6 @@ int decUDP(int pnum, unsigned int plen, FILE *in, FILE *out)
 		}
 		pcounter++;
 	}
-
 	return 0;
 }
 
@@ -371,7 +375,7 @@ return 0;
 // Naturally, I made this without realizing log multiplicaiton is more efficient.
 // If encoding resources becomes a problem, definitely use log multiplication instead.
 
-int mulGF(unsigned char poly1, unsigned char poly2, unsigned short power, unsigned short generator)
+unsigned char mulGF(unsigned char poly1, unsigned char poly2, unsigned short power, unsigned short generator)
 {
 	// result will be temporarily larger than a char
 	unsigned short result = 0;
@@ -430,14 +434,12 @@ int mulGF(unsigned char poly1, unsigned char poly2, unsigned short power, unsign
 // Reed-Solomon Encoder
 // BCH perspective
 
-/* WIP
-
 //Eventually this will become a generic function for RS
 
 // n,k: 2,1
 // packet size: p
-// code word size: 8 bits/bytes (GF(2^8))
-int rs2x1(int p,FILE *in, FILE *out)
+// code word size: 1 byte (GF(2^8))
+int rs2x1(int p, FILE *in, FILE *out)
 {
 
 // matrix:
@@ -449,15 +451,24 @@ int rs2x1(int p,FILE *in, FILE *out)
  * 1 1
  */
 
+
+
 // There will be 2 message packets, and one parity packet.
 // This is very easy to do without matrices; however,
 // this will still be done in the matrix-encoding style
-// for consistency with other n,k values.
+// for consistency with other n,k values. // no it won't i lied.
 
 // Currently, some values are hard-coded, while others are generic.
 
-/*
+// NOTE: this function currently does NOT add in information about
+// packet placement; for testing, we can assume that packets follow
+// a specific order, and we can imply their position and contents
+// based on their position in the stream, but that might not be
+// true later.
 
+
+
+/* unused currently
 unsigned char vand[3][2]
 
 vand[0][0] = 0x01
@@ -468,45 +479,176 @@ vand[1][1] = 0x01
 
 vand[2][0] = 0x01
 vand[2][1] = 0x01
-
-
-
-
-int n = 2;
-int k = 1;
-
-unsigned char packet[n+k][p];
-int end = 0;
-
-while (!end)
-{
-for (int packpos = 0; packpos < p; packpos++)
-{
-	for (int i = 0; i < n; i++)
-	{
-		int next = fgetc(in);
-		if (next == EOF)
-		{
-			packet[i][packpos] = 0x00;
-			end = 1;
-		}
-		else
-		{
-			packet[i][packpos] = (unsigned char) next;
-		}
-	}
-	for (int j = n; j < n+k; j++)
-	// Multiplication, then reduction for Galois Field
-	// Note the register must be twice the size of a char
-	{
-		packet[j][packpos] = vand[j][packpos] packet[0]
-	}
-
-// WIP
-
 */
 
 
+
+	int n = 2;
+	int k = 1;
+
+	int counter = 0;
+
+	unsigned char packet[n+k][p];
+	int end = 0;
+
+	while (!end)
+	{	// For every group of bytes about to be a original message packet
+		for (int i = 0; i < n; i++)
+		{
+			// For every byte in the group
+			for (int packpos = 0; packpos < p; packpos++)
+			{	// get the byte
+				int next = fgetc(in);
+				if (next == EOF)
+				{	//if end of file, continue to write 0s in code
+					packet[i][packpos] = 0x00;
+					end = 1;
+				}
+				else
+				{	//store the byte
+					packet[i][packpos] = (unsigned char) next;
+				}
+			}
+		}
+		// for each parity packet (only 1, pointless loop right now)
+		for (int i = n; i < n+k; i++)
+
+
+	/*
+	  GF MULTIPLICATION has been replaced with a simple XOR function for RS 2,1
+
+			// Multiplication for Galois Field
+			{
+				unsigned char parity =
+					multGF(packet[0][packpos],packet[1][packpos],8,285);
+					//generator: binary 100011101 decimal 285
+				packet[j][packpos] = parity;
+			}
+		}
+	*/
+
+
+
+		{
+			// for each position in the parity packet
+			for (int packpos = 0; packpos < p; packpos++)
+			// xor the message packets together
+			{
+				packet[i][packpos] = packet[0][packpos] ^ packet[1][packpos];
+			}
+
+		}
+		// for each packet
+		for (int i = 0; i < n+k; i++)
+		{
+			// for each byte in the packet
+			for (int packpos = 0; packpos < p; packpos++)
+			{
+				// write to stream
+				fputc(packet[i][packpos],out);
+			}
+		}
+		counter++;
+	}
+	return counter;
+}
+
+
+// Reed-Solomon decoder
+
+// Very simplified approach for 2,1
+// simply looks for the first two packets
+// if parity packet is necessary, divides it by received
+
+// Again, for testing, it assumes an order to packets received,
+// and "not received" packets are actually all 0s. (see udp decoder)
+
+// plen = packet length, bytes. pnum = number of packets including parity
+int d_rs2x1(unsigned int plen, int pnum, FILE *in, FILE *out)
+{
+
+	// Once again, some parts are hardcoded, others depend on n,k being 2,1
+	int n = 2;
+	int k = 1;
+	int next;
+	unsigned char packet[pnum][plen]; // saves all packets at once (make this better?)
+	int superzip[pnum]; // tracks if the packet is all zeroes
+
+	// for each packet
+	for (int i = 0; i < pnum; i++)
+	{
+		// for each position in each packet
+		for (unsigned int j1 = 0; j1 < plen; j1++)
+		{
+			// get next char and store
+			next = fgetc(in);
+			packet[i][j1] = (unsigned char) next;
+		}
+	}
+
+
+	// for each packet
+	for (int i = 0; i < pnum; i++)
+	{
+		superzip[i] = 0x00;
+		// for each position
+		for (unsigned int j3 = 0; j3 < plen; j3++)
+		{	// superzip being 0 => all bytes are 0
+			superzip[i] |= packet[i][j3];
+		}
+	}
+
+	// for each packet group
+	for (int i = 0; i < pnum; i+= n+k)
+	{
+		printf("%d %d %d\n",(unsigned short) superzip[0+i],(unsigned short) superzip[1+i],(unsigned short) superzip[2+i]);
+		// if first packet is 0s, adjust with 2nd and 3rd XOR, if correct
+		if (superzip[0+i] == 0x00 && superzip[2+i] != 0x00)
+		{	// for each packet position
+			for (unsigned int j2 = 0; j2 < plen; j2++)
+			{	// write first packet
+				unsigned char adjusted = packet[1+i][j2] ^ packet[2+i][j2];
+				fputc(adjusted,out);
+			}
+			for (unsigned int j2 = 0; j2 < plen; j2++)
+			{	// then write second packet
+				fputc(packet[1+i][j2],out);
+			}
+		printf("packet 1 all 0s, packet 3 not\n");
+		}
+		// if first isn't all 0s, see if 2nd is, and change if 3rd is correct
+		else if (superzip[1+i] == 0x00 && superzip[2+i] != 0x00)
+		{
+			for (unsigned int j2 = 0; j2 < plen; j2++)
+			{
+				fputc(packet[0+i][j2],out);
+			}
+			for (unsigned int j2 = 0; j2 < plen; j2++)
+			{
+				unsigned char adjusted = packet[0+i][j2] ^ packet[2+i][j2];
+				fputc(adjusted,out);
+			}
+		printf("packet 2 all 0s, packet 3 not\n");
+		}
+
+		// if neither are, or if 3rd is incorrect, use first two packets (no berlkamf 4u)
+		else
+		{
+			for (unsigned int j2 = 0; j2 < plen; j2++)
+			{
+				fputc(packet[0+i][j2],out);
+			}
+			for (unsigned int j2 = 0; j2 < plen; j2++)
+			{
+				fputc(packet[1+i][j2],out);
+			}
+		printf("else\n");
+
+		}
+	}
+
+	return 0;
+}
 
 
 /* DATA SCRAMBLING FUNCTIONS

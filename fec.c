@@ -251,6 +251,73 @@ int h74(FILE *in, FILE *out)
 }
 
 
+
+// Interleave hamming 7,4 into UDP packets to correct packet loss
+
+// First call h74, then call inlvham
+// returns total packets sent
+int inlvham(int plen, FILE *in, FILE *out)
+{
+	int end = 0;
+	int next = 0;
+	unsigned char c = 0x00;
+	int pcount = 0;
+
+	unsigned char packets[7][plen];
+
+
+	// Check to make sure length is valid
+	if (plen > 65535)
+		return -1;
+
+
+	while (!end)
+	{
+		addUDP(plen, out);
+		pcount += 7;
+
+		// Note the order: packet position, then packet
+		// because h74() was called first, this is the order implied
+
+		// for each position in packet
+		for (int i = 0; i < plen; i++)
+		{
+			// for each of the 7 packets currently in use
+			for (int j = 0; j < 7; j++)
+			{
+				// make sure not end of file
+				if (next != EOF)
+				{
+					next = fgetc(in);
+					if (next == EOF)
+					{
+						c = 0x00;
+						end = 1;
+					}
+					else
+					{
+						c = (unsigned char) next;;
+					}
+				}
+				// write to buffer
+				packets[j][i] = c;
+			}
+		}
+		// then write them all to stream, in correct order
+		for (int i = 0; i < 7; i++)
+		{
+			for (int j = 0; j < plen; j++)
+			{
+				fputc(packets[i][j],out);
+			}
+		}
+	}
+	return pcount;
+}
+
+
+
+
 /* Decoding the 7,4 hamming code.
  *
  * A basic linear search is used to find the syndrome, as
@@ -363,6 +430,50 @@ while (!end)
 return 0;
 }
 
+
+// de-interleave 7,4 hamming
+
+int d_inlvham(int plen, FILE *in, FILE *out)
+{
+	int next = 0;
+	int end = 0;
+	unsigned char c = 0x00;
+	unsigned char buff[7][plen];
+
+	while (!end)
+	{
+		for (int i = 0; i < 7; i++)
+		{
+			for (int j = 0; j < plen; j++)
+			{
+				next = fgetc(in);
+				if (next == EOF)
+				{
+					end = 1;
+					c = 0x00;
+				}
+				else
+				{
+					c = (unsigned char) next;
+				}
+				buff[i][j] = c;
+			}
+		}
+		for (int i = 0; i < plen; i++)
+		{
+			for (int j = 0; j < 7; j++)
+			{
+				fputc(buff[j][i],out);
+			}
+		}
+	}
+	printf("finished deinterleave\n");
+	return 0;
+}
+
+
+
+
 /*---*/
 
 
@@ -378,20 +489,22 @@ return 0;
 unsigned char mulGF(unsigned char poly1, unsigned char poly2, unsigned short power, unsigned short generator)
 {
 	// result will be temporarily larger than a char
+	unsigned short p1 = (unsigned short) poly1;
+	unsigned short p2 = (unsigned short) poly2;
 	unsigned short result = 0;
 	unsigned short mask;
 	unsigned short gen = generator;
-	int shift;
 
 	/* Expanded multiplication with mod_2 addition */
 	for (int i = 0; i < power; i++)
 	{
-		if (poly2 & 0x01)
+		if (p2 & 0x01)
 		{
-			result ^= poly1;
+			result ^= p1;
 		}
-		poly2 >>= 1;
-		poly1 <<= 1;
+		p2 >>= 1;
+		p1 <<= 1;
+		if (p2==0) break;
 	}
 
 	/* Reduction over generator */
@@ -401,20 +514,22 @@ unsigned char mulGF(unsigned char poly1, unsigned char poly2, unsigned short pow
 	}
 
 	mask = 0x8000; // one bit set
-	shift = 7;
 	// 16 bits in unsigned short minus 9 bits for gen
 	while (!(mask&result))
 	{
-		mask >> 1;
-		shift--;
+		mask >>= 1;
+		printf("1 result %x mask %x\n",result,mask);
+		if (mask == 0) break;
 	}
-	// debug
-	if (shift < 0) printf("SHIFT < 0\n");
+
 	// Because bit-shifting right is compiler-dependent,
 	// shift is used to re-shift from the right instead.
 
+	// ... these are all unsigned so most likely the compiler will be fine.
+
 	// Repeated subtraction (xor) in long division:
-	gen <<= shift; // gen should already be 9 bits
+//	gen <<= shift; // gen should already be 9 bits
+	gen *= mask;
 	while (2^power >= result)
 	{
 		if (mask & result)
@@ -423,6 +538,8 @@ unsigned char mulGF(unsigned char poly1, unsigned char poly2, unsigned short pow
 		}
 		mask >>= 1;
 		gen >>= 1;
+		printf("2 gen %x mask %x result %x\n",gen,mask,result);
+		if (mask == 0) break;
 	}
 	return result;
 }
@@ -510,31 +627,15 @@ vand[2][1] = 0x01
 				}
 			}
 		}
-		// for each parity packet (only 1, pointless loop right now)
+		// for each parity packet (only 1, pointless loop for rs2,1)
 		for (int i = n; i < n+k; i++)
-
-
-	/*
-	  GF MULTIPLICATION has been replaced with a simple XOR function for RS 2,1
-
-			// Multiplication for Galois Field
-			{
-				unsigned char parity =
-					multGF(packet[0][packpos],packet[1][packpos],8,285);
-					//generator: binary 100011101 decimal 285
-				packet[j][packpos] = parity;
-			}
-		}
-	*/
-
-
-
 		{
 			// for each position in the parity packet
 			for (int packpos = 0; packpos < p; packpos++)
-			// xor the message packets together
+			// galois field multiply the packets together
 			{
-				packet[i][packpos] = packet[0][packpos] ^ packet[1][packpos];
+				packet[i][packpos] = mulGF(packet[0][packpos],packet[1][packpos],8,285);
+							//generator: binary 100011101 decimal 285
 			}
 
 		}
@@ -602,11 +703,13 @@ int d_rs2x1(unsigned int plen, int pnum, FILE *in, FILE *out)
 	for (int i = 0; i < pnum; i+= n+k)
 	{
 		printf("%d %d %d\n",(unsigned short) superzip[0+i],(unsigned short) superzip[1+i],(unsigned short) superzip[2+i]);
-		// if first packet is 0s, adjust with 2nd and 3rd XOR, if correct
+		// if first packet is 0s, decode with 2nd and 3rd, if correct
+		// decoder matrix for 2,1: [(1,0),(1,1)]
 		if (superzip[0+i] == 0x00 && superzip[2+i] != 0x00)
 		{	// for each packet position
 			for (unsigned int j2 = 0; j2 < plen; j2++)
 			{	// write first packet
+//				unsigned char adjusted = mulGF(packet[1+i][j2],packet[2+i][j2],8,285);
 				unsigned char adjusted = packet[1+i][j2] ^ packet[2+i][j2];
 				fputc(adjusted,out);
 			}
@@ -617,6 +720,7 @@ int d_rs2x1(unsigned int plen, int pnum, FILE *in, FILE *out)
 		printf("packet 1 all 0s, packet 3 not\n");
 		}
 		// if first isn't all 0s, see if 2nd is, and change if 3rd is correct
+		// decoder matrix: same for 2,1
 		else if (superzip[1+i] == 0x00 && superzip[2+i] != 0x00)
 		{
 			for (unsigned int j2 = 0; j2 < plen; j2++)

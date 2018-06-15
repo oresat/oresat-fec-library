@@ -1,26 +1,29 @@
 This library has commands created for forward error correction for OreSat.
 
+Currently, everything is written as a stream input/output.
+
+Still need to optomize.
+
 
 Functions:
 	hamming (7,4) encoding and decoding (it's FEC and it works)
-		- in the final rounds of validation and verification
+		- in validation and verification
 		- create educational write-up
 
 	modern-grade FEC encoding and decoding (it's better FEC and it works better)
-		- decide on which code to use (probably SCCC or turbo)
-		- Reed-Solomon will directly address UDP packet loss; best plan is to
-			concatenate a RS code with convolution/turbo
+		- decide on which code to concatenate with (probably LDPC)
+		- Reed-solomon function currently not working.
 
 	emergency mode encoding and decoding (for very high bit error rate)
 		- calculate how much n/k to be sent in a 2 minute window
 		- two emergency modes: with and without assuming UDP packets
 
 	UDP packet header adder
-		- To do. Should be simple.
-
+		- Basic UDP packet adder, for one packet and for a stream, created.
+		
 	Various functions for testing FEC protocols.
-		- Made: function for altering bits ever n bytes
-		- To do: randomized bit error function
+		- Made: function for altering bits ever n bytes; random bit error simulator, 
+			UDP decoder with packet loss simulator
 
 
 (README will be made better in due time.)

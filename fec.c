@@ -256,7 +256,7 @@ int h74(FILE *in, FILE *out)
 
 // First call h74, then call inlvham
 // returns total packets sent
-int inlvham(int plen, FILE *in, FILE *out)
+int inlvham(unsigned int plen, FILE *in, FILE *out)
 {
 	int end = 0;
 	int next = 0;
@@ -273,17 +273,19 @@ int inlvham(int plen, FILE *in, FILE *out)
 
 	while (!end)
 	{
-		addUDP(plen, out);
-		pcount += 7;
+
+		// in case combinig features is wanted
+//		addUDP(plen, out);
+//		pcount += 7;
 
 		// Note the order: packet position, then packet
 		// because h74() was called first, this is the order implied
 
 		// for each position in packet
-		for (int i = 0; i < plen; i++)
+		for (unsigned int i = 0; i < plen; i++)
 		{
 			// for each of the 7 packets currently in use
-			for (int j = 0; j < 7; j++)
+			for (unsigned int j = 0; j < 7; j++)
 			{
 				// make sure not end of file
 				if (next != EOF)
@@ -304,9 +306,9 @@ int inlvham(int plen, FILE *in, FILE *out)
 			}
 		}
 		// then write them all to stream, in correct order
-		for (int i = 0; i < 7; i++)
+		for (unsigned int i = 0; i < 7; i++)
 		{
-			for (int j = 0; j < plen; j++)
+			for (unsigned int j = 0; j < plen; j++)
 			{
 				fputc(packets[i][j],out);
 			}
@@ -433,7 +435,7 @@ return 0;
 
 // de-interleave 7,4 hamming
 
-int d_inlvham(int plen, FILE *in, FILE *out)
+int d_inlvham(unsigned int plen, FILE *in, FILE *out)
 {
 	int next = 0;
 	int end = 0;
@@ -442,9 +444,11 @@ int d_inlvham(int plen, FILE *in, FILE *out)
 
 	while (!end)
 	{
-		for (int i = 0; i < 7; i++)
+		// for each hamming code position (between packets)
+		for (unsigned int i = 0; i < 7; i++)
 		{
-			for (int j = 0; j < plen; j++)
+			// for each packet position (in each packet)
+			for (unsigned int j = 0; j < plen; j++)
 			{
 				next = fgetc(in);
 				if (next == EOF)
@@ -459,10 +463,12 @@ int d_inlvham(int plen, FILE *in, FILE *out)
 				buff[i][j] = c;
 			}
 		}
-		for (int i = 0; i < plen; i++)
+		// for each packet position
+		for (unsigned int i = 0; i < plen; i++)
 		{
-			for (int j = 0; j < 7; j++)
-			{
+			// for each hamming code position
+			for (unsigned int j = 0; j < 7; j++)
+			{	// write to stream
 				fputc(buff[j][i],out);
 			}
 		}

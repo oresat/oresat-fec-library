@@ -1,4 +1,4 @@
-This library has commands created for forward error correction for OreSat.
+This library has commands created for (application level) forward error correction for OreSat.
 
 Currently, everything is written as a stream input/output.
 
